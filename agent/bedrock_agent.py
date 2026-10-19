@@ -114,28 +114,26 @@ class SupportAgent:
             "tool_calls": tool_calls,
         }
 
-    @staticmethod
-    def demo_response(prompt: str, session_id: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
+    _local_agent = None
+
+    @classmethod
+    def demo_response(cls, prompt: str, session_id: str, tenant_id: Optional[str] = None) -> Dict[str, Any]:
         """
-        Local demo response that preserves tenant context without AWS calls.
+        Demo mode: run the same investigation locally against fixtures.
+
+        The AWS services this project used are switched off (free-tier credits
+        ran out), so demo mode answers with the offline agent in
+        agent/local_agent.py instead of Bedrock AgentCore.
         """
-        tenant_label = tenant_id or "unknown tenant"
-        return {
-            "text": (
-                f"Demo analysis for {tenant_label}: I would search tenant-scoped logs, "
-                "retrieve matching runbooks, check CRM tier, and return a cited support plan."
-            ),
-            "session_id": session_id,
-            "traces": [],
-            "tool_calls": [
-                {
-                    "tool": "support_context",
-                    "function": "demo_triage_plan",
-                    "parameters": [{"name": "prompt", "value": prompt}],
-                }
-            ],
-            "status": "demo",
-        }
+        if not tenant_id:
+            return {"text": "Sign in to set a tenant before asking a question.", "session_id": session_id,
+                    "traces": [], "tool_calls": [], "status": "refused"}
+        if cls._local_agent is None:
+            from agent.local_agent import LocalSupportAgent
+            cls._local_agent = LocalSupportAgent()
+        result = cls._local_agent.invoke(prompt, tenant_id=tenant_id, session_id=session_id)
+        result["mode"] = "demo"
+        return result
 
     def invoke(
         self,
