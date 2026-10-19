@@ -190,7 +190,7 @@ def query_cloudwatch_logs(
     start_time = end_time - (hours_back * 3600)
 
     # Start the CloudWatch Logs Insights query
-    # This is an async operation — we start it and then poll for results
+    # This is an async operation, we start it and then poll for results
     start_response = logs_client.start_query(
         logGroupName=log_group,
         startTime=start_time,

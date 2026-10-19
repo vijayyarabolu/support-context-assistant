@@ -111,7 +111,7 @@ tests/            unit tests for auth, tools, retrieval, agent and eval gates
 
 ## Project history
 
-* April–May 2026: built and ran on AWS with Bedrock AgentCore, OpenSearch Serverless, Cognito, CloudWatch and DynamoDB.
+* April to May 2026: built and ran on AWS with Bedrock AgentCore, OpenSearch Serverless, Cognito, CloudWatch and DynamoDB.
 * October 2026: the free-tier credits ran out. I moved the project to this fresh repository and added the offline demo mode, the eval harness, the tenant-filter fix and CI so the project can still be run and checked.
 
 ## License

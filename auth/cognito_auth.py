@@ -41,7 +41,7 @@ class CognitoAuthMiddleware:
         self.region = config.AWS_REGION
         self.jwks_url = config.COGNITO_JWKS_URL
 
-        # Cache for JWKS keys — loaded on first validation
+        # Cache for JWKS keys, loaded on first validation
         self._jwks_keys: Optional[list] = None
 
     def _get_jwks_keys(self) -> list:
@@ -58,7 +58,7 @@ class CognitoAuthMiddleware:
             return self._jwks_keys
 
         if not self.jwks_url:
-            raise ValueError("COGNITO_USER_POOL_ID not configured — cannot fetch JWKS")
+            raise ValueError("COGNITO_USER_POOL_ID not configured, cannot fetch JWKS")
 
         # Fetch JWKS from the Cognito well-known endpoint
         response = urlopen(self.jwks_url)

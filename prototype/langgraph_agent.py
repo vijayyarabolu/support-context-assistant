@@ -52,7 +52,7 @@ class AgentState(TypedDict):
     - 3% resulted in lost tool outputs (state divergence)
     - These failures were non-deterministic and hard to reproduce in unit tests
     """
-    messages: Annotated[list, operator.add]  # Chat history — prone to duplication
+    messages: Annotated[list, operator.add]  # Chat history, prone to duplication
     context: dict                             # Accumulated context from tools
     tool_calls: list                          # Track which tools were invoked
     error_count: int                          # Track state errors for debugging
@@ -68,7 +68,7 @@ def process_query(state: AgentState) -> dict:
     - CloudWatch log query for recent errors
     - Knowledge base search for runbook matches
 
-    The routing logic itself worked correctly — the issues were in
+    The routing logic itself worked correctly, the issues were in
     how tool results were merged back into the state.
     """
     # Original implementation used LangChain's ChatAnthropic:
@@ -84,7 +84,7 @@ def process_query(state: AgentState) -> dict:
 
 def tool_execution_node(state: AgentState) -> dict:
     """
-    Tool execution node — WHERE THE STATE ERRORS OCCURRED.
+    Tool execution node. This is where the state errors occurred.
 
     When this node returned results for multiple sequential tool calls,
     the operator.add reducer for state["messages"] would occasionally:

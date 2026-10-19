@@ -24,9 +24,9 @@ DEMO_MODE = os.getenv("DEMO_MODE", "true").lower() in {"1", "true", "yes", "on"}
 # =============================================================================
 # AWS Bedrock AgentCore Configuration
 # =============================================================================
-# Bedrock AgentCore agent ID — created via AWS Console or CloudFormation
+# Bedrock AgentCore agent ID, created via AWS Console or CloudFormation
 BEDROCK_AGENT_ID = os.getenv("BEDROCK_AGENT_ID")
-# Bedrock AgentCore agent alias ID — points to the deployed version
+# Bedrock AgentCore agent alias ID, points to the deployed version
 BEDROCK_AGENT_ALIAS_ID = os.getenv("BEDROCK_AGENT_ALIAS_ID")
 
 # =============================================================================
