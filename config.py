@@ -72,10 +72,10 @@ DYNAMODB_STATE_TABLE = os.getenv("DYNAMODB_STATE_TABLE", "support-tenant-state")
 # =============================================================================
 # RAG Configuration
 # =============================================================================
-# Optimized chunking parameters (Variant 3 — winner after 3 iterations)
-# See retrieval/rag_pipeline.py for the full evaluation of all 3 variants
+# Chunking used for the OpenSearch index. The offline retriever's strategies
+# are compared in eval/run_eval.py.
 RAG_CHUNK_SIZE = 512
-RAG_CHUNK_OVERLAP = 50  # Reduced from 128 → 50 for 25% token savings
+RAG_CHUNK_OVERLAP = 50
 
 # =============================================================================
 # Application Settings

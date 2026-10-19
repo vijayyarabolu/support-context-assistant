@@ -4,24 +4,10 @@ RAG Pipeline over AWS OpenSearch Serverless for Support Runbooks.
 Retrieves troubleshooting runbooks and error catalogs using dense vector
 search with SigV4 authentication against OpenSearch Serverless.
 
-Three RAG chunking configurations were evaluated during development:
-
-Variant 1: Large Chunks (1024 tokens, 256 overlap)
-    - Problem: Retrieval accuracy was low because distinct troubleshooting
-      steps were merged together, diluting semantic search precision.
-    - Accuracy: 62% on 50-query test set
-
-Variant 2: Small Chunks with Heavy Overlap (256 tokens, 128 overlap)
-    - Problem: Chunk overlap was too large, causing massive redundancy in
-      context injection. The same troubleshooting steps appeared in multiple
-      chunks, consuming tokens without adding new information.
-    - Accuracy: 71% but at 1.8x token cost vs Variant 1
-
-Variant 3: Optimized Medium Chunks (512 tokens, 50 overlap) — WINNER
-    - Result: 25% token reduction from Variant 2 while preserving exact
-      step-by-step troubleshooting boundaries. Each chunk maps cleanly
-      to one runbook section.
-    - Accuracy: 74% at 0.7x token cost vs Variant 2
+Chunk size and overlap were tuned while the AWS index was live (it settled on
+512-token chunks with 50 tokens of overlap). That index is gone now, so the
+chunking comparison that can be rerun today lives in eval/run_eval.py and runs
+against the offline retriever in retrieval/local_retriever.py.
 """
 
 import json
@@ -104,7 +90,7 @@ class RunbookRetriever:
         Returns:
             List of matching runbook chunks with titles and content
         """
-        print(f"[RAG] Executing Variant 3 optimized retrieval for: {query}")
+        print(f"[RAG] Searching runbooks for: {query}")
 
         client = self._get_client()
 

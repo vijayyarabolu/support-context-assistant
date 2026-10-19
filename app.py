@@ -31,10 +31,6 @@ st.set_page_config(
 
 st.markdown("""
 <style>
-    .stApp {
-        background: #0f172a;
-    }
-    
     .tenant-badge {
         background: #3b82f6;
         color: white;
@@ -89,8 +85,23 @@ st.sidebar.caption("Provide a JWT token to establish tenant context.")
 
 auth_middleware = CognitoAuthMiddleware()
 
-# Mock JWT token for UI demonstration (simulates a decoded Cognito token)
-default_token = "eyJhbGciOiJIUzI1NiJ9.eyJjdXN0b206dGVuYW50X2lkIjoiVC00MDIiLCJ1c2VybmFtZSI6InRlc3Rfb3BzX3VzZXIifQ.mock_signature"
+def _demo_token(tenant: str) -> str:
+    """Unsigned token for demo mode only. Production mode rejects it."""
+    import base64
+    def seg(data):
+        return base64.urlsafe_b64encode(json.dumps(data).encode()).rstrip(b"=").decode()
+    return f"{seg({'alg': 'none'})}.{seg({'custom:tenant_id': tenant, 'username': 'demo_support_user'})}.demo"
+
+
+default_token = ""
+if config.DEMO_MODE:
+    demo_tenant = st.sidebar.selectbox(
+        "Demo tenant", ["T-402", "T-117", "T-233"],
+        format_func=lambda t: {"T-402": "T-402 Acme Logistics (Enterprise)",
+                               "T-117": "T-117 Globex Retail (Pro)",
+                               "T-233": "T-233 Initech Labs (Starter)"}[t],
+    )
+    default_token = _demo_token(demo_tenant)
 
 jwt_token = st.sidebar.text_input("Cognito JWT Token", value=default_token, type="password")
 
@@ -126,8 +137,8 @@ if st.session_state.tool_calls:
     for call in reversed(st.session_state.tool_calls[-5:]):  # Show last 5
         st.sidebar.markdown(
             f'<div class="trace-card">'
-            f'<span class="tool-badge">{call.get("tool")}</span><br/>'
-            f'<span style="color: #94a3b8;">{call.get("function")}</span>'
+            f'<span class="tool-badge">{call.get("tool")}</span>'
+            f'<span style="color: #94a3b8;">{call.get("result_count", "")} results</span>'
             f'</div>',
             unsafe_allow_html=True
         )
@@ -152,7 +163,8 @@ st.caption(
 # Configuration validation check
 config_check = config.validate_config()
 if config.DEMO_MODE:
-    st.info("Demo mode is enabled. AWS calls and unverified demo JWTs are allowed for local presentation only.")
+    st.info("Demo mode: the agent runs offline against local fixtures (logs, CRM, 12 runbooks). "
+            "The AWS deployment is paused because the free-tier credits ran out.")
 elif not config_check["valid"]:
     st.warning(f"⚠️ Configure .env for full AWS functionality. Missing: {', '.join(config_check['missing'])}")
 
@@ -208,6 +220,12 @@ if prompt := st.chat_input("E.g., Investigate Database Timeout exceptions for th
                     full_response = response.get("text")
                     
                 response_placeholder.markdown(full_response)
+
+                if response.get("tool_calls"):
+                    with st.expander(f"Tool calls ({len(response['tool_calls'])}) · {response.get('latency_ms', '?')} ms"):
+                        for call in response["tool_calls"]:
+                            st.markdown(f"`{call['tool']}` → {call.get('result_count', '?')} results  \n"
+                                        f"`{json.dumps(call.get('parameters', {}))}`")
                 
                 # Store traces for sidebar rendering
                 if response.get("tool_calls"):

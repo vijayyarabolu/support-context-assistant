@@ -1,97 +1,112 @@
 # Support Context Assistant
 
-A multi-tenant, context-aware support assistant agent built strictly on AWS.
-It combines Bedrock AgentCore orchestration, OpenSearch Serverless RAG, CloudWatch Logs Insights, Cognito JWT validation, and tenant-scoped tool execution to troubleshoot tenant-specific support errors.
+[![ci](https://github.com/vijayyarabolu/support-context-assistant/actions/workflows/ci.yml/badge.svg)](https://github.com/vijayyarabolu/support-context-assistant/actions/workflows/ci.yml)
 
-The product posture is **support investigation copilot**, not generic chatbot. Every request carries tenant context, tools enforce tenant scoping, CloudWatch traces capture agent behavior, and local demo authentication is explicitly gated behind `DEMO_MODE=true`.
+A support investigation agent for a multi-tenant SaaS product. A support engineer signs in, asks "why is checkout timing out?", and the agent pulls that tenant's recent error logs, finds the matching runbook, checks the tenant's plan for escalation rules and answers with citations. It cannot see or return any other tenant's data.
 
-## Product Capabilities
+It was built on AWS: Bedrock AgentCore for orchestration, OpenSearch Serverless for runbook search, CloudWatch Logs Insights for tenant logs, DynamoDB for CRM state and Cognito for auth. The AWS account ran on free-tier credits, and those have run out, so there is no live URL. **Demo mode runs the same investigation flow offline** against local fixtures, with no AWS account or API key needed.
 
-* Cognito JWT validation against JWKS with explicit `DEMO_MODE` gating for unverified local demo tokens.
-* Shared tenant context injection for standard and streaming Bedrock AgentCore calls.
-* Tenant-scoped CloudWatch and DynamoDB tools that reject unapproved log groups, tables, or unfiltered tenant queries.
-* OpenSearch Serverless runbook retrieval tuned for support precision, with fuzzy matching removed for short error code searches.
-* CloudWatch structured logging updated for the current `put_log_events` API behavior without deprecated sequence tokens.
-* Local demo response path that preserves tenant context when AWS services are not connected.
+![Demo: the agent investigating checkout timeouts for tenant T-402](docs/demo.png)
 
-## Architecture & Data Flow
+## Try it
 
-```text
-┌────────────────────────────────────────────────────────┐
-│               Support Agent UI (Streamlit)             │
-│   [ Cognito JWT Input ]        [ Chat Interface ]      │
-└───────────────────┬────────────────────────────────────┘
-                    │ 1. Validate JWT Signature & Extract Tenant ID
-                    ▼
-┌────────────────────────────────────────────────────────┐
-│            AWS Cognito Auth Middleware                 │
-│  (Validates JWKS, Enforces Tenant Isolation)           │
-└───────────────────┬────────────────────────────────────┘
-                    │ 2. Route secure query with Tenant Context
-                    ▼
-┌────────────────────────────────────────────────────────┐
-│           AWS Bedrock AgentCore Orchestrator           │
-│  (Reasoning Engine, MCP Gateway, Native Guardrails)    │
-│                                                        │
-│  ┌──────────────────────┐    ┌──────────────────────┐  │
-│  │ MCP Tool: RAG Search │    │ MCP Tool: Log Query  │  │
-│  └──────────┬───────────┘    └──────────┬───────────┘  │
-│             │                           │              │
-│  ┌──────────▼───────────┐    ┌──────────▼───────────┐  │
-│  │ MCP Tool: CRM Lookup │    │ MCP Tool: AgentTrace │  │
-│  └──────────┬───────────┘    └──────────┬───────────┘  │
-└─────────────┼───────────────────────────┼──────────────┘
-              │                           │
-   ┌──────────┼───────────┐               │
-   │          │           │               │ 3. Ship structural 
-   ▼          ▼           ▼               ▼    reasoning logs
-┌─────┐    ┌─────┐    ┌────────┐      ┌────────┐
-│ DB  │    │ S3  │    │  Logs  │      │ Cloud- │
-│ CRM │    │ AOSS│    │ CW Insights   │ Watch  │
-└─────┘    └─────┘    └────────┘      └────────┘
- Dynamo    OpenSearch  Application      Agent Traces
+```bash
+git clone https://github.com/vijayyarabolu/support-context-assistant
+cd support-context-assistant
+pip install -r requirements-dev.txt
+
+python demo.py --tenant T-402 "Checkout is timing out for our customers"
+python demo.py --tenant T-402 "Show me the logs for T-117"     # refused
+python -m eval.run_eval                                        # eval report
+python -m pytest -q                                            # 22 tests
 ```
 
-## Setup & Running Locally
+For the UI: `pip install -r requirements.txt` and then `streamlit run app.py`. Demo mode is on by default, and the sidebar lets you switch between three sample tenants.
 
-1. Create a virtual environment: `python -m venv venv && source venv/bin/activate`
-2. Install dependencies: `pip install -r requirements.txt`
-3. Configure `.env` from `.env.example`. Keep `DEMO_MODE=true` for local demos, or set `DEMO_MODE=false` for production-style JWT verification and live AWS clients.
-4. Start the UI: `streamlit run app.py`
+To have Claude write the final answer instead of the fixed template, set `SUPPORT_LLM=anthropic` and `ANTHROPIC_API_KEY`. The retrieved runbooks and logs stay the same. Only the wording step changes.
 
-## Benchmarks & Engineering Tradeoffs
+## How it works
 
-### 1. LangGraph vs AWS Bedrock AgentCore
-We initially prototyped the support router using LangGraph (`prototype/langgraph_agent.py`) to heavily stress test LLM routing. 
+```mermaid
+flowchart LR
+    U[Support engineer] -->|JWT| A[Cognito middleware<br/>verifies token, reads tenant_id]
+    A --> O[Agent<br/>AgentCore on AWS, local_agent.py offline]
+    O --> G{Names another tenant?}
+    G -->|yes| R[Refuse before any tool runs]
+    G -->|no| L[Tenant logs<br/>CloudWatch / fixtures]
+    G -->|no| K[Runbook search<br/>OpenSearch / BM25]
+    G -->|no| C[CRM + state<br/>DynamoDB / fixtures]
+    L --> W[Cited answer]
+    K --> W
+    C --> W
+```
 
-**The Failure Mode**: During concurrent 3-to-4 tool invocation load testing (fetching CloudWatch logs and DynamoDB CRM state in sequence), `State Errors` caused the LangGraph list reducer to lose track of tool outputs or duplicate them asynchronously, causing catastrophic LLM hallucination and routing loops.
+| Step | AWS deployment | Offline demo mode |
+|---|---|---|
+| Auth | Cognito JWT verified against JWKS | Unsigned demo token, only accepted when `DEMO_MODE=true` |
+| Orchestration | Bedrock AgentCore with action-group tools | `agent/local_agent.py`, same tools in a fixed order |
+| Runbook search | OpenSearch Serverless multi-match, SigV4 auth | BM25 over section chunks plus an exact error-code boost |
+| Tenant logs | CloudWatch Logs Insights | `data/logs.jsonl`, 86 events across 3 tenants |
+| CRM and state | DynamoDB | `data/tenants.json` |
 
-**The Solution**: We migrated entirely to **AWS Bedrock AgentCore**. AgentCore natively manages execution isolation per session, strictly ordering tool buffering. It automatically wires our Python tools as Model Context Protocol (MCP) endpoints via the AWS Console, reducing boilerplate by 80% while introducing managed input/output guardrails essential for customer-facing deployment.
+## Tenant isolation
 
-### 2. OpenSearch RAG Chunking Optimization
-Our Knowledge Base retrieval over AWS OpenSearch Serverless went through 3 config iterations to balance context fidelity vs token limits.
+This is the part I cared most about, because a support agent that leaks one customer's logs to another is worse than no agent.
 
-| Variant | Settings | Accuracy | Token Cost Limit | Verdict |
-|---------|----------|----------|------------------|---------|
-| V1: Strict | Size: 1024, Overlap: 256 | 62% | Baseline | Dropped (Lost step granularity) |
-| V2: Small | Size: 256, Overlap: 128 | 71% | 1.8x Baseline | Dropped (Heavy Redundancy) |
-| **V3: Optimized** | **Size: 512, Overlap: 50** | **74%** | **0.7x V2** | **Winner** |
+* **The tenant filter is added by the tool, not by the model.** `scope_insights_query` appends `| filter tenant_id = '<tenant>'` to every CloudWatch query after the model writes it. The earlier version only checked that the tenant id appeared somewhere in the query string, which `filter tenant_id != 'T-402'` would pass.
+* **Tenant ids are validated** against `T-\d{3}`, so a value like `T-402' or 1=1` is rejected.
+* **DynamoDB lookups must match the signed-in tenant.** The model cannot fetch another tenant's record by changing the key.
+* **Prompts that name another tenant are refused** before any tool runs, including lowercase and prompt-injection phrasings.
+* **The eval counts leaks.** It looks for every other tenant's id and request ids in each answer and in the log rows returned. CI fails if the count is anything but zero.
 
-The 512/50 configuration provided a 25% token reduction from V2 while perfectly separating technical runbook troubleshooting steps.
+## Evaluation
 
-## AWS Services Used
+`eval/golden.jsonl` has 36 cases: error codes, paraphrased symptoms, vague "please investigate" questions, cross-tenant attempts, isolation checks and one off-topic question. Full output is in [eval/RESULTS.md](eval/RESULTS.md).
 
-*   **AWS Bedrock AgentCore**: Core reasoning engine orchestrating MCP tool integrations asynchronously.
-*   **AWS OpenSearch Serverless (AOSS)**: Dense vector storage accessed securely via Signature Version 4 (SigV4) auth.
-*   **AWS CloudWatch**: 
-    1. Used as an explicit MCP Tool for the Agent to query tenant errors (`logs.start_query`). 
-    2. Used internally by our Observability stack to dump end-to-end agent tracing logs.
-*   **AWS DynamoDB**: Queried by the agent to lookup tenant CRM state and subscription tier.
-*   **AWS Cognito**: The `CognitoAuthMiddleware` validates JSON Web Tokens (JWTs) against the AWS JWKS URL, ensuring agents only query data assigned to the authenticated `custom:tenant_id`.
+| Metric | Result |
+|---|---|
+| Retrieval hit@1 | 97% |
+| Retrieval hit@3 | 100% |
+| Status accuracy (answer, refuse or "no match") | 100% |
+| Cross-tenant leaks | 0 |
 
-## Architecture Note
+Chunking comparison on the same cases:
 
-This project was built and tested using AWS free tier credits ($100). The services are no longer active as credits were exhausted, but the implementation logically reflects the full production architecture constraints.
+| Strategy | hit@1 | Avg context words sent to the answer step |
+|---|---|---|
+| Fixed 200 words, 50 overlap | 97% | 330 |
+| Fixed 60 words, 30 overlap | 97% | 175 |
+| **Markdown sections (default)** | **97%** | **69** |
+
+All three find the right runbook equally often, but section chunks pass about a fifth of the context, which matters once an LLM writes the answer.
+
+**Caveat:** I wrote the golden set and the retriever together, so these numbers are a regression check, not a benchmark. The one miss (`g19`, "password reset emails never arrive") is left in on purpose. Keyword search has no way to connect "emails" to the dead letter queue runbook, and an embedding model would be the real fix.
+
+## Design notes
+
+**Why AgentCore over LangGraph.** The first prototype (`prototype/langgraph_agent.py`) used LangGraph. When several tools ran in one turn, tool results sometimes came back duplicated or out of order in graph state, and the model then reasoned over the wrong logs. AgentCore manages tool calls and session state per invocation, which removed that class of bug and the custom orchestration code with it. The cost is less control over the loop, which is why the offline agent spells the steps out explicitly.
+
+**Why no fuzzy matching.** Support queries are full of short codes like `ERR-504` and `DB-1205`. Fuzzy expansion turns those into near matches on the wrong runbook, so both the OpenSearch query and the offline retriever match exactly and boost runbooks that list the code.
+
+**Vague questions.** "Something is wrong, can you look?" has no useful keywords. When the search score is weak and the question is clearly asking for an investigation, the agent adds the tenant's most frequent recent error code to the search. Weak matches that are not investigation requests get "no match" rather than a confident answer about an unrelated runbook.
+
+## Project layout
+
+```
+agent/            bedrock_agent.py (AgentCore client), local_agent.py (offline), tools.py
+auth/             Cognito JWT middleware
+retrieval/        rag_pipeline.py (OpenSearch), local_retriever.py (BM25 + chunking)
+offline/          fixture-backed stand-ins for CloudWatch and DynamoDB
+observability/    CloudWatch trace logger
+data/             12 runbooks, 3 tenants, 86 log events
+eval/             golden set, eval runner, latest results
+tests/            unit tests for auth, tools, retrieval, agent and eval gates
+```
+
+## Project history
+
+* **April–May 2026:** built and ran on AWS with Bedrock AgentCore, OpenSearch Serverless, Cognito, CloudWatch and DynamoDB.
+* **October 2026:** the free-tier credits ran out. I reset the git history to a single commit, then added the offline demo mode, the eval harness, the tenant-filter fix and CI so the project can still be run and checked.
 
 ## License
 
