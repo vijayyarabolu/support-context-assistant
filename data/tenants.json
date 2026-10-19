@@ -1,0 +1,29 @@
+{
+  "T-402": {
+    "name": "Acme Logistics",
+    "plan": "Enterprise",
+    "support_tier": "Premium 24/7",
+    "account_manager": "Dana Ruiz",
+    "contract_start": "2025-01-01",
+    "contract_end": "2027-01-01",
+    "state": {"region": "us-east-1", "custom_domain": "app.acmelogistics.example", "last_deploy": "2026-10-18T13:40:00Z", "bulk_import_running": true}
+  },
+  "T-117": {
+    "name": "Globex Retail",
+    "plan": "Pro",
+    "support_tier": "Business hours",
+    "account_manager": "Sam Patel",
+    "contract_start": "2025-06-01",
+    "contract_end": "2026-12-01",
+    "state": {"region": "us-west-2", "custom_domain": null, "last_deploy": "2026-10-15T09:00:00Z", "bulk_import_running": false}
+  },
+  "T-233": {
+    "name": "Initech Labs",
+    "plan": "Starter",
+    "support_tier": "Email only",
+    "account_manager": "Unassigned",
+    "contract_start": "2026-03-01",
+    "contract_end": "2027-03-01",
+    "state": {"region": "eu-west-1", "custom_domain": "portal.initech.example", "last_deploy": "2026-10-10T16:20:00Z", "bulk_import_running": false}
+  }
+}
