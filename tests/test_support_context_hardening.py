@@ -194,13 +194,45 @@ class RagQueryTest(unittest.TestCase):
 
 
 class TenantToolIsolationTest(unittest.TestCase):
-    def test_cloudwatch_tool_rejects_unscoped_queries(self):
+    def test_cloudwatch_tool_forces_tenant_filter_on_every_query(self):
+        captured = {}
+
+        class FakeLogs:
+            def start_query(self, **kwargs):
+                captured.update(kwargs)
+                return {"queryId": "q1"}
+
+            def get_query_results(self, queryId):
+                return {"status": "Complete", "results": []}
+
+        original_boto3, original_sleep = tools.boto3, tools.time.sleep
+        tools.boto3 = types.SimpleNamespace(client=lambda *a, **k: FakeLogs())
+        tools.time.sleep = lambda _: None
+        try:
+            tools.query_cloudwatch_logs(
+                log_group=config.TENANT_LOG_GROUP,
+                query="fields @timestamp, @message | filter tenant_id != 'T-402'",
+                tenant_id="T-402",
+            )
+        finally:
+            tools.boto3, tools.time.sleep = original_boto3, original_sleep
+
+        self.assertTrue(captured["queryString"].endswith("| filter tenant_id = 'T-402'"))
+
+    def test_cloudwatch_tool_rejects_malformed_tenant(self):
         result = tools.query_cloudwatch_logs(
             log_group=config.TENANT_LOG_GROUP,
-            query="fields @timestamp, @message | filter level = 'ERROR'",
-            tenant_id="T-402",
+            query="fields @message",
+            tenant_id="T-402' or 1=1",
         )
+        self.assertEqual(result["status"], "access_denied")
 
+    def test_dynamo_tool_rejects_other_tenant_key(self):
+        result = tools.fetch_dynamo_record(
+            table_name=config.DYNAMODB_CRM_TABLE,
+            key_dict={"tenant_id": "T-117"},
+            authenticated_tenant_id="T-402",
+        )
         self.assertEqual(result["status"], "access_denied")
 
     def test_dynamo_tool_rejects_unapproved_table(self):

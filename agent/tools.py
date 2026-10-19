@@ -12,12 +12,23 @@ Tools:
 - fetch_dynamo_record: DynamoDB get_item for tenant state records
 """
 
+import re
 import time
 from typing import Dict, Any
 
 import boto3
 
 import config
+
+
+TENANT_ID_PATTERN = re.compile(r"T-\d{3}")
+
+
+def scope_insights_query(query: str, tenant_id: str) -> str:
+    """Append a tenant filter that the caller cannot remove."""
+    if not TENANT_ID_PATTERN.fullmatch(tenant_id or ""):
+        raise ValueError("invalid tenant_id")
+    return f"{query.strip()} | filter tenant_id = '{tenant_id}'"
 
 
 ALLOWED_DYNAMODB_TABLES = {
@@ -153,12 +164,18 @@ def query_cloudwatch_logs(
             tenant_id,
         )
 
-    if not tenant_id or tenant_id not in query:
+    if not tenant_id or not TENANT_ID_PATTERN.fullmatch(tenant_id):
         return _tenant_scope_error(
             "query_cloudwatch_logs",
-            "CloudWatch query must include the authenticated tenant_id filter",
+            "A valid authenticated tenant_id is required",
             tenant_id,
         )
+
+    # The tenant filter is added here, after whatever the model wrote, instead
+    # of trusting the model to include it. Insights applies piped filters in
+    # order, so a query like "filter tenant_id != 'T-402'" still ends up
+    # restricted to the caller's tenant.
+    query = scope_insights_query(query, tenant_id)
 
     aws_config = config.get_aws_session_config()
 
@@ -291,7 +308,7 @@ def lookup_crm(tenant_id: str) -> Dict[str, Any]:
 # Tool: DynamoDB Record Fetch
 # =============================================================================
 
-def fetch_dynamo_record(table_name: str, key_dict: dict) -> Dict[str, Any]:
+def fetch_dynamo_record(table_name: str, key_dict: dict, authenticated_tenant_id: str = "") -> Dict[str, Any]:
     """
     Fetch a specific record from a DynamoDB table.
 
@@ -301,6 +318,9 @@ def fetch_dynamo_record(table_name: str, key_dict: dict) -> Dict[str, Any]:
     Args:
         table_name: DynamoDB table name to query
         key_dict: Primary key dictionary (e.g., {"tenant_id": "T-001"})
+        authenticated_tenant_id: Tenant from the verified JWT. When set, the
+            lookup key must match it, so the model cannot ask for another
+            tenant's record by changing the key.
 
     Returns:
         Dict with the retrieved record or error status
@@ -317,6 +337,13 @@ def fetch_dynamo_record(table_name: str, key_dict: dict) -> Dict[str, Any]:
         return _tenant_scope_error(
             "fetch_dynamo_record",
             "DynamoDB lookup key must include tenant_id",
+            requested_tenant_id,
+        )
+
+    if authenticated_tenant_id and requested_tenant_id != authenticated_tenant_id:
+        return _tenant_scope_error(
+            "fetch_dynamo_record",
+            "Lookup key tenant_id does not match the authenticated tenant",
             requested_tenant_id,
         )
 
