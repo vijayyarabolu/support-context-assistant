@@ -1,0 +1,5 @@
+# Enough to run tests, evals and the CLI demo without AWS.
+boto3>=1.34
+PyJWT>=2.8
+python-dotenv>=1.0
+pytest>=8.0
